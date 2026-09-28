@@ -49,6 +49,7 @@ Automatic subset selection using CFS:
 >>> X_new = cfs.fit_transform(X, y)
 >>> print(f"Selected: {cfs.get_support(indices=True)}")
 """
+from tuiml.features.selection.rfe import RFE, RFECV
 
 # Base classes and utilities
 from tuiml.features.selection._base import (
@@ -100,6 +101,8 @@ __all__ = [
     "VarianceThresholdSelector",
     # Sequential
     "SequentialFeatureSelector",
+    "RFE",
+    "RFECV",
     "BestFirstSelector",
     # Subset
     "CFSSelector",

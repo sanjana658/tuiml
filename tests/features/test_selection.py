@@ -16,6 +16,7 @@ from tuiml.features.selection import (
 from tuiml.features.selection import CFSSelector, WrapperSelector
 from tuiml.features.selection import RandomSubsetSelector, BootstrapFeaturesSelector
 from tuiml.features.selection import SequentialFeatureSelector, BestFirstSelector
+from tuiml.features.selection import RFE, RFECV
 
 
 # --------------------------------------------------------------------------
@@ -1018,3 +1019,170 @@ class TestBestFirstSelectorSchema:
         assert "direction" in schema
         assert "search_termination" in schema
         assert "cv" in schema
+
+
+# --------------------------------------------------------------------------
+# Tests for RFE and RFECV.
+# --------------------------------------------------------------------------
+
+
+class RFEImportanceEstimator:
+    """Simple estimator exposing deterministic feature importances."""
+
+    def __init__(self):
+        self.feature_importances_ = None
+
+    def get_params(self):
+        return {}
+
+    def fit(self, X, y):
+        self.feature_importances_ = np.var(X, axis=0)
+        return self
+
+    def predict(self, X):
+        return np.zeros(X.shape[0], dtype=int)
+
+
+@pytest.fixture
+def rfe_data():
+    """Create data with deterministic feature variances."""
+    rng = np.random.RandomState(42)
+    X = rng.randn(40, 5)
+    X[:, 0] *= 5
+    X[:, 1] *= 4
+    y = rng.randint(0, 2, 40)
+    return X, y
+
+
+class TestRFE:
+
+    def test_fit_selects_requested_number(self, rfe_data):
+        X, y = rfe_data
+        selector = RFE(
+            estimator=RFEImportanceEstimator(),
+            n_features_to_select=2,
+        )
+
+        selector.fit(X, y)
+
+        assert selector.n_features_to_select_ == 2
+        assert selector.support_.sum() == 2
+        assert len(selector._selected_indices) == 2
+
+    def test_transform_output(self, rfe_data):
+        X, y = rfe_data
+        selector = RFE(
+            estimator=RFEImportanceEstimator(),
+            n_features_to_select=2,
+        )
+
+        X_new = selector.fit_transform(X, y)
+
+        assert X_new.shape == (X.shape[0], 2)
+
+    def test_ranking_selected_features(self, rfe_data):
+        X, y = rfe_data
+        selector = RFE(
+            estimator=RFEImportanceEstimator(),
+            n_features_to_select=2,
+        )
+
+        selector.fit(X, y)
+
+        assert np.all(selector.ranking_[selector.support_] == 1)
+
+    def test_requires_y(self, rfe_data):
+        X, y = rfe_data
+        selector = RFE(estimator=RFEImportanceEstimator())
+
+        with pytest.raises(ValueError, match="requires target values"):
+            selector.fit(X)
+
+    def test_requires_estimator(self, rfe_data):
+        X, y = rfe_data
+        selector = RFE()
+
+        with pytest.raises(ValueError, match="estimator must be provided"):
+            selector.fit(X, y)
+
+    def test_invalid_feature_count(self, rfe_data):
+        X, y = rfe_data
+        selector = RFE(
+            estimator=RFEImportanceEstimator(),
+            n_features_to_select=0,
+        )
+
+        with pytest.raises(ValueError, match="n_features_to_select"):
+            selector.fit(X, y)
+
+    def test_parameter_schema(self):
+        schema = RFE.get_parameter_schema()
+
+        assert "estimator" in schema
+        assert "n_features_to_select" in schema
+        assert "step" in schema
+
+
+class TestRFECV:
+
+    def test_fit_records_cv_results(self, rfe_data):
+        X, y = rfe_data
+        selector = RFECV(
+            estimator=RFEImportanceEstimator(),
+            step=1,
+            cv=3,
+        )
+
+        selector.fit(X, y)
+
+        assert selector.n_features_to_select_ >= 1
+        assert selector.support_.sum() == selector.n_features_to_select_
+        assert "n_features" in selector.cv_results_
+        assert "mean_test_score" in selector.cv_results_
+        assert len(selector.cv_results_["n_features"]) == 5
+
+    def test_transform_output(self, rfe_data):
+        X, y = rfe_data
+        selector = RFECV(
+            estimator=RFEImportanceEstimator(),
+            step=1,
+            cv=3,
+        )
+
+        X_new = selector.fit_transform(X, y)
+
+        assert X_new.shape[0] == X.shape[0]
+        assert X_new.shape[1] == selector.n_features_to_select_
+
+    def test_requires_y(self, rfe_data):
+        X, y = rfe_data
+        selector = RFECV(estimator=RFEImportanceEstimator())
+
+        with pytest.raises(ValueError, match="requires target values"):
+            selector.fit(X)
+
+    def test_requires_estimator(self, rfe_data):
+        X, y = rfe_data
+        selector = RFECV()
+
+        with pytest.raises(ValueError, match="estimator must be provided"):
+            selector.fit(X, y)
+
+    def test_invalid_cv(self, rfe_data):
+        X, y = rfe_data
+        selector = RFECV(
+            estimator=RFEImportanceEstimator(),
+            cv=1,
+        )
+
+        with pytest.raises(ValueError, match="cv must be at least 2"):
+            selector.fit(X, y)
+
+    def test_parameter_schema(self):
+        schema = RFECV.get_parameter_schema()
+
+        assert "estimator" in schema
+        assert "step" in schema
+        assert "cv" in schema
+        assert "scoring" in schema
+        assert "random_state" in schema
