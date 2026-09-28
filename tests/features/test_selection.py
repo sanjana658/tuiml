@@ -5,19 +5,25 @@ Merged from: test_selection_variance.py, test_selection_univariate.py, test_sele
 
 import numpy as np
 import pytest
-from tuiml.features.selection import VarianceThresholdSelector
+
+from tuiml.algorithms.trees.random_forest import RandomForestClassifier, RandomForestRegressor
+from tuiml.evaluation.splitting import KFold, StratifiedKFold
 from tuiml.features.selection import (
+    RFE,
+    RFECV,
+    BestFirstSelector,
+    BootstrapFeaturesSelector,
+    CFSSelector,
+    GenericUnivariateSelector,
+    RandomSubsetSelector,
+    SelectFprSelector,
     SelectKBestSelector,
     SelectPercentileSelector,
     SelectThresholdSelector,
-    SelectFprSelector,
-    GenericUnivariateSelector,
+    SequentialFeatureSelector,
+    VarianceThresholdSelector,
+    WrapperSelector,
 )
-from tuiml.features.selection import CFSSelector, WrapperSelector
-from tuiml.features.selection import RandomSubsetSelector, BootstrapFeaturesSelector
-from tuiml.features.selection import SequentialFeatureSelector, BestFirstSelector
-from tuiml.features.selection import RFE, RFECV
-
 
 # --------------------------------------------------------------------------
 # Tests for VarianceThresholdSelector.
@@ -664,7 +670,7 @@ class TestRandomSubsetSelectorFit:
     def test_transform_output_shape(self, random_subset_sample_data):
         selector = RandomSubsetSelector(n_features=0.3, random_state=42)
         X_new = selector.fit_transform(random_subset_sample_data)
-        expected_n = max(1, int(round(20 * 0.3)))
+        expected_n = max(1, round(20 * 0.3))
         assert X_new.shape == (30, expected_n)
 
     def test_invert_selection(self, random_subset_sample_data):
@@ -1114,6 +1120,89 @@ class TestRFE:
 
         with pytest.raises(ValueError, match="n_features_to_select"):
             selector.fit(X, y)
+
+    def test_real_classifier_default_scoring(self, rfe_data, monkeypatch):
+        import tuiml.features.selection.rfe as rfe_module
+
+        seen = []
+        original = rfe_module._score_predictions
+
+        def capture(y_true, y_pred, scoring):
+            seen.append(scoring)
+            return original(y_true, y_pred, scoring)
+
+        monkeypatch.setattr(rfe_module, "_score_predictions", capture)
+
+        X, y = rfe_data
+        selector = RFECV(
+            estimator=RandomForestClassifier(n_estimators=5, random_state=42),
+            step=2,
+            cv=3,
+            random_state=42,
+        )
+        selector.fit(X, y)
+
+        assert seen
+        assert set(seen) == {"accuracy"}
+
+    def test_real_regressor_default_scoring(self, rfe_data, monkeypatch):
+        import tuiml.features.selection.rfe as rfe_module
+
+        seen = []
+        original = rfe_module._score_predictions
+
+        def capture(y_true, y_pred, scoring):
+            seen.append(scoring)
+            return original(y_true, y_pred, scoring)
+
+        monkeypatch.setattr(rfe_module, "_score_predictions", capture)
+
+        X, _ = rfe_data
+        y = 2 * X[:, 0] + X[:, 1]
+
+        selector = RFECV(
+            estimator=RandomForestRegressor(n_estimators=5, random_state=42),
+            step=2,
+            cv=3,
+            random_state=42,
+        )
+        selector.fit(X, y)
+
+        assert seen
+        assert set(seen) == {"r2"}
+
+    def test_kfold_splitter_object(self, rfe_data):
+        X, y = rfe_data
+        selector = RFECV(
+            estimator=RFEImportanceEstimator(),
+            step=2,
+            cv=KFold(n_splits=3, shuffle=True, random_state=42),
+        )
+        selector.fit(X, y)
+
+        assert np.array_equal(selector.cv_results_["n_features"], np.array([5, 3, 1]))
+
+    def test_stratified_kfold_splitter_object(self, rfe_data):
+        X, y = rfe_data
+        selector = RFECV(
+            estimator=RFEImportanceEstimator(),
+            step=2,
+            cv=StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
+        )
+        selector.fit(X, y)
+
+        assert np.array_equal(selector.cv_results_["n_features"], np.array([5, 3, 1]))
+
+    def test_tie_selects_smallest_feature_set(self, rfe_data):
+        X, y = rfe_data
+        selector = RFECV(
+            estimator=RFEImportanceEstimator(),
+            step=1,
+            cv=3,
+        )
+        selector.fit(X, np.zeros_like(y))
+
+        assert selector.support_.sum() == 1
 
     def test_parameter_schema(self):
         schema = RFE.get_parameter_schema()
