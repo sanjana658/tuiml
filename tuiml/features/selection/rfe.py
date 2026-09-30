@@ -143,9 +143,8 @@ class RFE(FeatureSelector, SelectorMixin):
     ...     estimator=RandomForestClassifier(n_estimators=5, random_state=0),
     ...     n_features_to_select=2,
     ... )
-    >>> selector.fit(X, y)
-    RFE(...)
-    >>> selector.support_.sum()
+    >>> _ = selector.fit(X, y)
+    >>> int(selector.support_.sum())
     2
     """
 
@@ -328,8 +327,7 @@ class RFECV(RFE):
     ...     estimator=RandomForestClassifier(n_estimators=5, random_state=0),
     ...     cv=3,
     ... )
-    >>> selector.fit(X, y)
-    RFECV(...)
+    >>> _ = selector.fit(X, y)
     >>> selector.n_features_to_select_ >= 1
     True
 
@@ -341,8 +339,7 @@ class RFECV(RFE):
     ...     estimator=RandomForestClassifier(n_estimators=5, random_state=0),
     ...     cv=cv,
     ... )
-    >>> selector.fit(X, y)
-    RFECV(...)
+    >>> _ = selector.fit(X, y)
     """
 
     def __init__(
